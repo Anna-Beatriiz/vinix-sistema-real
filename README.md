@@ -22,7 +22,7 @@ docker compose up --build
 
 3. Abra `http://localhost:3000`.
 4. Painel: `http://localhost:3000/admin`.
-5. Credenciais locais: `admin@vinix.local` / `Vinix@123456`.
+5. Acesso administrativo: `http://localhost:3000/admin`.
 
 **Troque as credenciais e o JWT_SECRET antes de qualquer publicação.**
 
