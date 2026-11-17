@@ -5,29 +5,27 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+
 const { query } = require('./db');
+const { enviarAnexo, excluirAnexo } = require('./anexos');
+const { getStorageClient } = require('./storage');
 const { signAdmin, authRequired, ensureAdmin } = require('./auth');
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
-const uploadDir = path.join(__dirname,'..','uploads');
-fs.mkdirSync(uploadDir,{recursive:true});
+
+
 
 app.use(helmet({contentSecurityPolicy:false}));
 app.use(express.json({limit:'1mb'}));
 app.use(express.urlencoded({extended:true}));
 app.use(cookieParser());
 app.use(express.static(path.join(__dirname,'..','public')));
-app.use('/uploads', express.static(uploadDir));
 
-const storage = multer.diskStorage({
-  destination: uploadDir,
-  filename: (req,file,cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(file.originalname).toLowerCase()}`)
-});
+
 const allowed = new Set(['image/jpeg','image/png','image/webp','application/pdf']);
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits:{fileSize:Number(process.env.MAX_UPLOAD_MB || 5)*1024*1024},
   fileFilter:(req,file,cb)=> allowed.has(file.mimetype) ? cb(null,true) : cb(new Error('Tipo de arquivo não permitido'))
 });
@@ -38,13 +36,52 @@ app.get('/api/health', async (req,res)=>{
 });
 
 app.post('/api/orcamentos', upload.single('attachment'), async (req,res,next)=>{
+  let attachmentPath = null;
+
   try {
     const {name,phone,email,service,description} = req.body;
-    if(!name || !phone || !email || !service || !description) return res.status(400).json({error:'Preencha todos os campos obrigatórios.'});
-    const attachmentPath = req.file ? `/uploads/${req.file.filename}` : null;
-    const result = await query(`INSERT INTO quote_requests(name,phone,email,service,description,attachment_path) VALUES($1,$2,$3,$4,$5,$6) RETURNING id,created_at`,[name.trim(),phone.trim(),email.trim(),service.trim(),description.trim(),attachmentPath]);
-    res.status(201).json({message:'Solicitação recebida com sucesso.', id:result.rows[0].id});
-  } catch(err){ next(err); }
+
+    if (!name || !phone || !email || !service || !description) {
+      return res.status(400).json({
+        error:'Preencha todos os campos obrigatórios.'
+      });
+    }
+
+    if (req.file) {
+      attachmentPath = await enviarAnexo(req.file);
+    }
+
+    const result = await query(
+      `INSERT INTO quote_requests
+      (name,phone,email,service,description,attachment_path)
+      VALUES($1,$2,$3,$4,$5,$6)
+      RETURNING id,created_at`,
+      [
+        name.trim(),
+        phone.trim(),
+        email.trim(),
+        service.trim(),
+        description.trim(),
+        attachmentPath
+      ]
+    );
+
+    res.status(201).json({
+      message:'Solicitação recebida com sucesso.',
+      id:result.rows[0].id
+    });
+
+  } catch(err) {
+    if (attachmentPath) {
+      try {
+        await excluirAnexo(attachmentPath);
+      } catch(erroExclusao) {
+        console.error('Erro ao excluir anexo:', erroExclusao);
+      }
+    }
+
+    next(err);
+  }
 });
 
 app.post('/api/admin/login', async (req,res,next)=>{
@@ -71,6 +108,53 @@ app.patch('/api/admin/orcamentos/:id',authRequired,async(req,res,next)=>{
   }catch(err){next(err)}
 });
 
+app.get('/api/admin/orcamentos/:id/anexo', authRequired, async (req,res,next)=>{
+  try {
+    const resultado = await query(
+      'SELECT attachment_path FROM quote_requests WHERE id=$1',
+      [req.params.id]
+    );
+
+    if (resultado.rowCount === 0 || !resultado.rows[0].attachment_path) {
+      return res.status(404).json({error:'Anexo não encontrado.'});
+    }
+
+    const nome = resultado.rows[0].attachment_path;
+
+    if (!/^[0-9a-f-]{36}\.(jpg|png|webp|pdf)$/.test(nome)) {
+      return res.status(404).json({error:'Anexo indisponível.'});
+    }
+
+    const supabase = getStorageClient();
+
+    const {data,error} = await supabase.storage
+      .from('vinix-anexos')
+      .download(nome);
+
+    if (error || !data) {
+      return res.status(404).json({error:'Arquivo não encontrado.'});
+    }
+
+    const tipos = {
+      jpg:'image/jpeg',
+      png:'image/png',
+      webp:'image/webp',
+      pdf:'application/pdf'
+    };
+
+    const extensao = nome.split('.').pop();
+
+    res.setHeader('Content-Type', tipos[extensao]);
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    res.send(buffer);
+  } catch(err) {
+    next(err);
+  }
+});
 app.get('/admin',(req,res)=>res.sendFile(path.join(__dirname,'..','public','admin.html')));
 app.use((err,req,res,next)=>{ console.error(err); res.status(500).json({error: err.message || 'Erro interno'}); });
 
