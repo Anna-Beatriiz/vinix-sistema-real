@@ -33,6 +33,12 @@ docker compose up --build
 3. Copie `.env.example` para `.env` e ajuste os valores.
 4. Execute `npm install` e depois `npm start`.
 
-## Próxima etapa de produção
+## Implantação em nuvem
 
-Para cumprir integralmente a parte de Computação em Nuvem do Projeto Integrado, publicar a aplicação em um provedor (AWS/Azure/GCP), usar PostgreSQL gerenciado, HTTPS/domínio, armazenamento de arquivos adequado, secrets, logs/métricas e deploy CI/CD.
+O sistema VINIX Comunicação Visual foi publicado na plataforma Render, utilizando PostgreSQL e armazenamento de arquivos pelo Supabase.
+
+O projeto também utiliza Docker para execução local e GitHub para versionamento do código.
+
+**Site publicado:** https://vinix-sistema-real.onrender.com
+
+**Repositório:** https://github.com/Anna-Beatriiz/vinix-sistema-real
