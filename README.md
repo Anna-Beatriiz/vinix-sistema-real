@@ -1,3 +1,5 @@
+# Projeto desenvolvido por ANNA BEATRIZ RA24002072
+
 # Vinix Comunicação Visual — Sistema Web
 
 Sistema real baseado no protótipo, com:
